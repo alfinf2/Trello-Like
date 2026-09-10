@@ -1,4 +1,4 @@
-name: tests
+name: CI
 
 on:
   push:
@@ -13,26 +13,90 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: task_tracker
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_USER: task_tracker
+          MYSQL_PASSWORD: password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.5'
+          php-version: '8.3'
+          extensions: mbstring, xml, ctype, bcmath, mysql, curl, zip
           tools: composer:v2
           coverage: none
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'npm'
 
-      - name: Setup Application
-        run: composer setup
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
 
-      - name: Run CI Checks
-        run: composer ci:check
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-progress --prefer-dist
+
+      - name: Setup environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Configure database
+        run: |
+          sed -i 's/DB_CONNECTION=.*/DB_CONNECTION=mysql/' .env
+          sed -i 's/DB_HOST=.*/DB_HOST=127.0.0.1/' .env
+          sed -i 's/DB_PORT=.*/DB_PORT=3306/' .env
+          sed -i 's/DB_DATABASE=.*/DB_DATABASE=task_tracker/' .env
+          sed -i 's/DB_USERNAME=.*/DB_USERNAME=task_tracker/' .env
+          sed -i 's/DB_PASSWORD=.*/DB_PASSWORD=password/' .env
+
+      - name: Run migrations
+        run: php artisan migrate --force
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Check JavaScript formatting
+        run: npm run check
+
+      - name: Check TypeScript types
+        run: npm run types:check
+
+      - name: Check PHP formatting
+        run: vendor/bin/pint --parallel --test
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-progress
+
+      - name: Run tests
+        run: vendor/bin/pest
+
+      - name: Build frontend
+        run: npm run build
