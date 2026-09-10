@@ -4,10 +4,11 @@ use App\Models\User;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Fortify\Features;
 
-test('login screen can be rendered', function () {
+test('login screen is served by the SPA', function () {
     $response = $this->get(route('login'));
 
     $response->assertOk();
+    $this->assertStringContainsString('<div id="root">', $response->getContent());
 });
 
 test('users can authenticate using the login screen', function () {

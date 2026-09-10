@@ -1,11 +1,16 @@
 <?php
 
+use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Support\Facades\Route;
 
-Route::inertia('/', 'welcome')->name('home');
+Route::redirect('/', '/app')->name('home');
 
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'dashboard')->name('dashboard');
-});
+Route::redirect('/dashboard', '/app')->name('dashboard');
 
-require __DIR__.'/settings.php';
+Route::get('/email/verify/{id}/{hash}', function (EmailVerificationRequest $request) {
+    $request->fulfill();
+
+    return redirect()->route('home');
+})->middleware(['signed'])->name('verification.verify');
+
+Route::get('/app/{any?}', fn () => view('spa'))->where('any', '.*')->name('app');
